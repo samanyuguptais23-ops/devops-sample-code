@@ -5,15 +5,18 @@ pipeline {
     stages {
         stage('Build') {
             steps {
-                echo 'Installing dependencies...'
-                sh 'python3 -m pip install --user -r requirements.txt'
+                echo 'Creating virtual environment and installing dependencies...'
+                sh '''
+                    python3 -m venv .venv
+                    .venv/bin/pip install -r requirements.txt
+                '''
             }
         }
 
         stage('Test') {
             steps {
                 echo 'Running unit tests...'
-                sh 'python3 -m unittest discover -s .'
+                sh '.venv/bin/python -m unittest discover -s .'
             }
         }
 
@@ -23,6 +26,7 @@ pipeline {
                 sh '''
                     mkdir -p "$WORKSPACE/python-app-deploy"
                     cp app.py "$WORKSPACE/python-app-deploy/"
+                    cp requirements.txt "$WORKSPACE/python-app-deploy/"
                 '''
             }
         }
@@ -31,17 +35,25 @@ pipeline {
             steps {
                 echo 'Starting Flask application...'
                 sh '''
-                    nohup python3 "$WORKSPACE/python-app-deploy/app.py" \
+                    nohup "$WORKSPACE/.venv/bin/python" \
+                      "$WORKSPACE/python-app-deploy/app.py" \
                       > "$WORKSPACE/python-app-deploy/app.log" 2>&1 &
                     echo $! > "$WORKSPACE/python-app-deploy/app.pid"
+                    sleep 3
+                    if ! kill -0 "$(cat "$WORKSPACE/python-app-deploy/app.pid")"; then
+                        cat "$WORKSPACE/python-app-deploy/app.log"
+                        exit 1
+                    fi
                 '''
             }
         }
 
         stage('Test Application') {
             steps {
-                echo 'Testing the application...'
-                sh 'python3 -m unittest discover -s .'
+                echo 'Testing application...'
+                sh '''
+                    python3 -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:5000/').read().decode())"
+                '''
             }
         }
     }
